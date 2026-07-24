@@ -182,6 +182,55 @@ describe("HiddenBrowser", function() {
 		});
 	});
 
+	describe("#getPageData() timeout", function () {
+		var httpd;
+		var port = 16216;
+		var heldResponses = [];
+
+		before(function () {
+			httpd = new HttpServer();
+			httpd.start(port);
+			// Same-origin page whose parser-blocking script never finishes loading, so the
+			// document never reaches 'interactive'
+			httpd.registerPathHandler('/hangpage', {
+				handle(request, response) {
+					response.setHeader('Content-Type', 'text/html', false);
+					response.setStatusLine(null, 200, 'OK');
+					response.write('<html><head><script src="/hang.js"></script></head>'
+						+ '<body>x</body></html>');
+				}
+			});
+			httpd.registerPathHandler('/hang.js', {
+				handle(request, response) {
+					response.processAsync();
+					response.setStatusLine(null, 200, 'OK');
+					response.setHeader('Content-Type', 'text/javascript', false);
+					heldResponses.push(response);
+				}
+			});
+		});
+
+		after(async function () {
+			for (let r of heldResponses) {
+				try { r.finish(); } catch (e) {}
+			}
+			await new Promise(resolve => httpd.stop(resolve));
+		});
+
+		it("getPageData should reject instead of hanging on a never-ready document", async function () {
+			this.timeout(20000);
+			let browser = new HiddenBrowser();
+			await browser.load(`http://127.0.0.1:${port}/hangpage`);
+			let start = Date.now();
+			let e = await getPromiseError(browser.getPageData(['bodyText'], { timeout: 2000 }));
+			let elapsed = Date.now() - start;
+			browser.destroy();
+			assert.ok(e, 'getPageData rejected');
+			assert.include(e.message, 'Timed out');
+			assert.isBelow(elapsed, 10000, 'rejected around the timeout, not after a long hang');
+		});
+	});
+
 	describe("#getDocument()", function () {
 		it("should provide a Document object", async function () {
 			let path = OS.Path.join(getTestDataDirectory().path, 'test-hidden.html');

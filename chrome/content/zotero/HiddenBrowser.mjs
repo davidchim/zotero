@@ -266,12 +266,22 @@ export class HiddenBrowser {
 	
 	/**
 	 * @param {String[]} props - 'characterSet', 'title', 'bodyText', 'documentHTML', 'cookie', 'channelInfo'
+	 * @param {Object} [options]
+	 * @param {Number} [options.timeout=30000] - Time to wait for each property in milliseconds.
+	 *     The queries wait for the document to be ready, so a page that never finishes loading
+	 *     would otherwise hang the query forever.
 	 */
-	async getPageData(props) {
+	async getPageData(props, { timeout = 30000 } = {}) {
 		var actor = this.browsingContext.currentWindowGlobal.getActor("PageData");
 		var data = {};
 		for (let prop of props) {
-			data[prop] = await actor.sendQuery(prop);
+			let timeoutPromise = new Promise((_, reject) => {
+				setTimeout(
+					() => reject(new Error(`Timed out getting '${prop}' from hidden browser`)),
+					timeout
+				);
+			});
+			data[prop] = await Promise.race([actor.sendQuery(prop), timeoutPromise]);
 		}
 		return data;
 	}
