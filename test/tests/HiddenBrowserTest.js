@@ -151,6 +151,35 @@ describe("HiddenBrowser", function() {
 			assert.equal(characterSet, 'GBK');
 			assert.equal(bodyText, '这是一个测试文件。');
 		});
+
+		it("shouldn't execute JavaScript with allowJavaScript: false", async function () {
+			// A blob: URL created from chrome gets the system principal, which can run scripts
+			// even when JavaScript is disabled
+			var html = '<html><head><meta charset="utf-8"></head><body>'
+				+ '<p>Static content</p><p id="target"></p>'
+				+ '<script>document.getElementById("target").textContent = "This is a test.";</script>'
+				+ '</body></html>';
+			var blobURL = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+			var browser = new HiddenBrowser({ allowJavaScript: false });
+			await browser.load(blobURL);
+			var { bodyText } = await browser.getPageData(['bodyText']);
+			URL.revokeObjectURL(blobURL);
+			browser.destroy();
+			assert.include(bodyText, 'Static content');
+			assert.notInclude(bodyText, 'This is a test.');
+		});
+
+		it("shouldn't execute JavaScript in a local file with allowJavaScript: false", async function () {
+			// A file: URL loads in a separate content process, so this also checks that the
+			// sandboxing survives the content-process switch that happens during the load
+			var path = OS.Path.join(getTestDataDirectory().path, 'test-js.html');
+			var browser = new HiddenBrowser({ allowJavaScript: false });
+			await browser.load(path);
+			var { bodyText } = await browser.getPageData(['bodyText']);
+			browser.destroy();
+			assert.include(bodyText, 'Static content');
+			assert.notInclude(bodyText, 'This is a test.');
+		});
 	});
 
 	describe("#getDocument()", function () {

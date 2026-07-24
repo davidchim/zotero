@@ -37,6 +37,10 @@ ChromeUtils.defineESModuleGetters(globalThis, {
 
 const progressListeners = new Set();
 
+// From nsSandboxFlags.h
+const SANDBOXED_ORIGIN = 0x10;
+const SANDBOXED_SCRIPTS = 0x80;
+
 /**
  * Functions for creating and destroying hidden browser objects
  **/
@@ -54,6 +58,7 @@ export class HiddenBrowser {
 	 */
 	constructor(options = {}) {
 		this._destroyed = false;
+		this._allowJavaScript = options.allowJavaScript !== false;
 		this._createdPromise = (async () => {
 			let doc;
 			if (options.useHiddenFrame !== false) {
@@ -61,7 +66,6 @@ export class HiddenBrowser {
 				this._frame = frame;
 
 				var windowlessBrowser = await frame.get();
-				windowlessBrowser.browsingContext.allowJavascript = options.allowJavaScript !== false;
 				windowlessBrowser.docShell.allowImages = false;
 				if (options.docShell) {
 					Object.assign(windowlessBrowser.docShell, options.docShell);
@@ -100,7 +104,14 @@ export class HiddenBrowser {
 			if (options.customUserAgent) {
 				browser.browsingContext.customUserAgent = options.customUserAgent;
 			}
-			
+
+			if (!this._allowJavaScript) {
+				// A system-principal document (e.g., a blob: URL created by chrome code) can run
+				// scripts even when scripting is otherwise disabled, so sandbox it with a null
+				// principal and no scripts.
+				browser.browsingContext.sandboxFlags |= SANDBOXED_ORIGIN | SANDBOXED_SCRIPTS;
+			}
+
 			this._browser = browser;
 		})();
 
