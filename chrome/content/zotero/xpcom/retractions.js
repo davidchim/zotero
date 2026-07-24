@@ -449,8 +449,14 @@ Zotero.Retractions = {
 			}
 		}
 		else if (action == 'delete') {
+			let removedItemIDs = [];
 			for (let id of ids) {
-				await this._removeEntry(id, extraData[id].libraryID);
+				if (await this._removeEntry(id, extraData[id].libraryID)) {
+					removedItemIDs.push(id);
+				}
+			}
+			if (removedItemIDs.length) {
+				await Zotero.Notifier.trigger('refresh', 'item', removedItemIDs);
 			}
 		}
 	},
@@ -467,10 +473,16 @@ Zotero.Retractions = {
 		
 		// If no possible matches, clear retraction flag on any items that changed
 		if (!this._queuedPrefixStrings.size) {
+			let removedItemIDs = [];
 			for (let item of this._queuedItems) {
-				await this._removeEntry(item.id, item.libraryID);
+				if (await this._removeEntry(item.id, item.libraryID)) {
+					removedItemIDs.push(item.id);
+				}
 			}
 			this._queuedItems.clear();
+			if (removedItemIDs.length) {
+				await Zotero.Notifier.trigger('refresh', 'item', removedItemIDs);
+			}
 			return;
 		}
 		
@@ -495,10 +507,16 @@ Zotero.Retractions = {
 		}
 		
 		// Remove retraction status for items that were checked but didn't match
+		let removedItemIDs = [];
 		for (let item of items) {
 			if (!addedItems.includes(item.id)) {
-				await this._removeEntry(item.id, item.libraryID);
+				if (await this._removeEntry(item.id, item.libraryID)) {
+					removedItemIDs.push(item.id);
+				}
 			}
+		}
+		if (removedItemIDs.length) {
+			await Zotero.Notifier.trigger('refresh', 'item', removedItemIDs);
 		}
 	},
 	
@@ -642,24 +660,30 @@ Zotero.Retractions = {
 		}
 		
 		// Remove existing retracted items that no longer match
-		var removed = 0;
+		var removedItemIDs = [];
 		if (removeExisting) {
 			for (let itemID of this._retractedItems.keys()) {
 				if (!allItemIDs.has(itemID)) {
 					let item = await Zotero.Items.getAsync(itemID);
-					await this._removeEntry(itemID, item.libraryID);
-					removed++;
+					if (await this._removeEntry(itemID, item.libraryID)) {
+						removedItemIDs.push(itemID);
+					}
 				}
 			}
 		}
 		
 		var msg = `Found ${addedItemIDs.size} retracted `
 			+ Zotero.Utilities.pluralize(addedItemIDs.size, 'item');
-		if (removed) {
-			msg += " and removed " + removed;
+		if (removedItemIDs.length) {
+			msg += " and removed " + removedItemIDs.length;
 		}
 		Zotero.debug(msg);
 		addedItemIDs = [...addedItemIDs];
+		// Refresh the items whose retraction state changed
+		let changedItemIDs = [...addedItemIDs, ...removedItemIDs];
+		if (changedItemIDs.length) {
+			await Zotero.Notifier.trigger('refresh', 'item', changedItemIDs);
+		}
 		if (addedItemIDs.length && !this._suppressAlerts) {
 			this._showAlert(addedItemIDs); // async
 		}
@@ -893,7 +917,9 @@ Zotero.Retractions = {
 		var libraryID = item.libraryID;
 		// Check whether the retraction is already hidden by the user
 		var flag = this._retractedItems.get(itemID);
-		if (flag === undefined) {
+		// An item already known to be retracted needs no refresh
+		var isNew = flag === undefined;
+		if (isNew) {
 			this._retractedItems.set(itemID, this.FLAG_NORMAL);
 		}
 		if (!item.deleted && flag !== this.FLAG_HIDDEN) {
@@ -904,14 +930,14 @@ Zotero.Retractions = {
 			await this._updateLibraryRetractions(libraryID);
 		}
 		
-		await Zotero.Notifier.trigger('refresh', 'item', [itemID]);
+		return isNew;
 	},
 	
 	_removeEntry: async function (itemID, libraryID) {
 		this._deleteItemKeyMappings(itemID);
 		
 		if (!this._retractedItems.has(itemID)) {
-			return;
+			return false;
 		}
 		
 		await Zotero.DB.queryAsync("DELETE FROM retractedItems WHERE itemID=?", itemID);
@@ -919,7 +945,7 @@ Zotero.Retractions = {
 		this._retractedItemsByLibrary[libraryID].delete(itemID);
 		await this._updateLibraryRetractions(libraryID);
 		
-		await Zotero.Notifier.trigger('refresh', 'item', [itemID]);
+		return true;
 	},
 	
 	_removeAllEntries: async function () {
