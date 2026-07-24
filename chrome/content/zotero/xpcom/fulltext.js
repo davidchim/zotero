@@ -3102,7 +3102,7 @@ Zotero.Fulltext = Zotero.FullText = new function () {
 			let arrayBuffer = await (await fetch(Zotero.File.pathToFileURI(path))).arrayBuffer();
 			let blob = new Blob([arrayBuffer], { type: contentType });
 			blobURL = URL.createObjectURL(blob);
-			browser = new HiddenBrowser({ blockRemoteResources: true });
+			browser = new HiddenBrowser({ blockRemoteResources: true, allowJavaScript: false });
 			await browser.load(blobURL);
 			pageData = await browser.getPageData(['characterSet', 'bodyText']);
 		}

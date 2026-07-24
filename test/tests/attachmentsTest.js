@@ -304,7 +304,7 @@ describe("Zotero.Attachments", function () {
 			assert.propertyVal(matches[0], 'id', attachment.id);
 		});
 		
-		it("should index JavaScript-created text in an HTML file", async function () {
+		it("shouldn't execute JavaScript when indexing an HTML file", async function () {
 			var item = await createDataObject('item');
 			var file = getTestDataDirectory();
 			file.append('test-js.html');
@@ -318,9 +318,14 @@ describe("Zotero.Attachments", function () {
 			
 			assert.equal(attachment.attachmentCharset, 'utf-8');
 			
-			var matches = await Zotero.Fulltext.findTextInItems([attachment.id], 'test');
+			// Static content should be indexed
+			var matches = await Zotero.Fulltext.findTextInItems([attachment.id], 'static');
 			assert.lengthOf(matches, 1);
 			assert.propertyVal(matches[0], 'id', attachment.id);
+			
+			// JavaScript-created content shouldn't be
+			matches = await Zotero.Fulltext.findTextInItems([attachment.id], 'test');
+			assert.lengthOf(matches, 0);
 		});
 	});
 	
